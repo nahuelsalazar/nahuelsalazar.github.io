@@ -25,7 +25,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20" # Nuxt 4 requiere Node 18+, la v20 es ideal
+          node-version: "22" # Nuxt 4 requiere Node 18+, la v20 es ideal
           cache: "npm" # Cambia a 'pnpm' o 'yarn' si usas otro gestor
 
       - name: Install dependencies
