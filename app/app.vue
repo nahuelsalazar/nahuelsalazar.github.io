@@ -403,7 +403,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from "vue";
+import { ref, onMounted, onUnmounted, computed } from "vue";
 import { projects, skills, experience, profile, contact } from "./consts";
 
 // ---------- MODO CLARO / MODO OSCURO ----------
@@ -411,61 +411,25 @@ const { isDark, toggleDarkMode } = useTheme();
 
 useHead({
   title: `${profile.value.name} — ${profile.value.title}`,
-
   meta: [
-    {
-      name: "description",
-      content: profile.value.summary,
-    },
-    {
-      name: "author",
-      content: profile.value.name,
-    },
-    {
-      name: "robots",
-      content: "index, follow",
-    },
-
-    // Open Graph
+    { name: "description", content: profile.value.summary },
+    { name: "author", content: profile.value.name },
+    { name: "robots", content: "index, follow" },
     {
       property: "og:title",
       content: `${profile.value.name} — ${profile.value.title}`,
     },
-    {
-      property: "og:description",
-      content: profile.value.summary,
-    },
-    {
-      property: "og:type",
-      content: "website",
-    },
-    {
-      property: "og:locale",
-      content: "es_ES",
-    },
-
-    // Twitter / X
-    {
-      name: "twitter:card",
-      content: "summary_large_image",
-    },
+    { property: "og:description", content: profile.value.summary },
+    { property: "og:type", content: "website" },
+    { property: "og:locale", content: "es_ES" },
+    { name: "twitter:card", content: "summary_large_image" },
     {
       name: "twitter:title",
       content: `${profile.value.name} — ${profile.value.title}`,
     },
-    {
-      name: "twitter:description",
-      content: profile.value.summary,
-    },
+    { name: "twitter:description", content: profile.value.summary },
   ],
-
-  link: [
-    {
-      rel: "canonical",
-      href: "https://tudominio.com",
-    },
-  ],
-
+  link: [{ rel: "canonical", href: "https://tudominio.com" }],
   htmlAttrs: {
     class: computed(() => (isDark.value ? "dark" : "")),
   },
@@ -477,60 +441,78 @@ let scene: any = null;
 let camera: any = null;
 let renderer: any = null;
 let animationFrameId: number | null = null;
+let resizeObserver: ResizeObserver | null = null;
+
+// Función para ajustar la distancia de la cámara en pantallas móviles estrechas
+const updateCameraAspect = () => {
+  if (!camera || !canvasContainer.value) return;
+  const w = canvasContainer.value.clientWidth;
+  const h = canvasContainer.value.clientHeight;
+  if (w === 0 || h === 0) return;
+
+  const aspect = w / h;
+  camera.aspect = aspect;
+
+  // Si la pantalla es estrecha (móviles/tablets verticales), alejamos la cámara proporcionalmente
+  const baseDistance = 3.2;
+  if (aspect < 1) {
+    camera.position.z = baseDistance / aspect;
+  } else {
+    camera.position.z = baseDistance;
+  }
+
+  camera.updateProjectionMatrix();
+};
 
 onMounted(async () => {
-  // Inicializamos modo oscuro por defecto en el HTML
   if (!canvasContainer.value) return;
 
-  // Importación dinámica de Three.js sólo en el navegador (Client-side)
+  // Importación dinámica de Three.js (Client-side)
   const THREE = await import("three");
   const { GLTFLoader } =
     await import("three/examples/jsm/loaders/GLTFLoader.js");
   const { OrbitControls } =
     await import("three/examples/jsm/controls/OrbitControls.js");
 
-  const width = canvasContainer.value.clientWidth;
-  const height = canvasContainer.value.clientHeight;
+  const width = canvasContainer.value.clientWidth || 300;
+  const height = canvasContainer.value.clientHeight || 400;
 
   // 1. Scene
   scene = new THREE.Scene();
 
   // 2. Camera
   camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
-  camera.position.set(0, 1.5, 3);
+
+  camera.position.set(1, 1, 1);
+
+  // Forzar a la cámara a mirar al centro del modelo
 
   // 3. Renderer
   renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   renderer.setSize(width, height);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
-
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.2;
-
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFShadowMap;
 
   canvasContainer.value.appendChild(renderer.domElement);
 
+  // Ajustar cámara según aspect ratio inicial
+  updateCameraAspect();
+
   // 4. Lights
   const ambientLight = new THREE.AmbientLight(0xffffff, 2);
   scene.add(ambientLight);
 
-  const directionalLight = new THREE.DirectionalLight(0xffffff, 2);
+  const directionalLight = new THREE.DirectionalLight(0xffffff, 2.5);
   directionalLight.position.set(5, 5, 5);
   directionalLight.castShadow = true;
-  directionalLight.shadow.mapSize.width = 1024; // Calidad de la sombra
+  directionalLight.shadow.mapSize.width = 1024;
   directionalLight.shadow.mapSize.height = 1024;
-  directionalLight.shadow.camera.near = 0.5;
-  directionalLight.shadow.camera.far = 15;
-
-  // Un bias negativo muy pequeño aleja la sombra de la superficie lo suficiente para evitar el acné.
   directionalLight.shadow.bias = -0.001;
-
-  // Opcionalmente, normalBias ayuda a suavizar artefactos en superficies curvas o bordes.
   directionalLight.shadow.normalBias = 0.02;
-
   scene.add(directionalLight);
 
   // 5. Orbit Controls
@@ -541,13 +523,18 @@ onMounted(async () => {
   controls.minPolarAngle = Math.PI * 0.3;
   controls.maxPolarAngle = Math.PI * 0.65;
 
-  // 6. Carga del Modelo GLB
+  const offsetPanX = -0.2;
+
+  camera.position.x += offsetPanX;
+  controls.target.x += offsetPanX;
+  controls.update();
+
+  // 6. Carga del Modelo GLB con Grupo Contenedor (MÉTODO LIMPIO Y CENTRADO)
   const loader = new GLTFLoader();
   loader.load(
     "/avatar.glb",
     (gltf) => {
       console.log("✅ Modelo cargado correctamente");
-
       const model = gltf.scene;
 
       model.traverse((child) => {
@@ -557,37 +544,35 @@ onMounted(async () => {
         }
       });
 
-      // Añadir primero el modelo
-      scene.add(model);
+      // Crear un grupo pivote
+      const wrapperGroup = new THREE.Group();
+      scene.add(wrapperGroup);
+      wrapperGroup.add(model);
 
-      model.rotation.y = -0.5;
-
-      // Calcular dimensiones del modelo
+      // A) Calcular bounding box original
       const box = new THREE.Box3().setFromObject(model);
-      const size = box.getSize(new THREE.Vector3());
       const center = box.getCenter(new THREE.Vector3());
+      const size = box.getSize(new THREE.Vector3());
 
-      console.log("📦 Tamaño:", size);
-      console.log("📍 Centro:", center);
+      // B) Centrar el modelo DENTRO de su propio wrapper en el origen (0,0,0)
+      model.position.x = -center.x;
+      model.position.y = -center.y;
+      model.position.z = -center.z;
 
-      // Centrar el modelo
-      model.position.set(-center.x, -center.y - 0.5, -center.z);
-
-      // Calcular escala automática
+      // C) Escalar el grupo completo
       const maxDimension = Math.max(size.x, size.y, size.z);
-
-      const targetSize = 2;
+      const targetSize = 2.0;
 
       if (maxDimension > 0) {
         const scale = targetSize / maxDimension;
-        model.scale.setScalar(scale);
+        wrapperGroup.scale.setScalar(scale);
       }
 
-      console.log("📐 Escala:", model.scale);
+      // D) Rotación inicial
+      wrapperGroup.rotation.y = -0.3;
     },
     undefined,
     (_error) => {
-      // Si el archivo GLB aún no existe o falla la carga, creamos un cubo estilizado de fallback
       console.error("❌ Error cargando avatar.glb:", _error);
       const geometry = new THREE.IcosahedronGeometry(0.8, 0);
       const material = new THREE.MeshStandardMaterial({
@@ -595,15 +580,12 @@ onMounted(async () => {
         wireframe: true,
       });
       const fallbackMesh = new THREE.Mesh(geometry, material);
-      fallbackMesh.position.set(0, 0, 0);
       scene.add(fallbackMesh);
 
-      // Animación continua para la figura de repuesto
-      const animateFallback = () => {
+      scene.userData.animateFallback = () => {
         fallbackMesh.rotation.x += 0.005;
         fallbackMesh.rotation.y += 0.01;
       };
-      scene.userData.animateFallback = animateFallback;
     },
   );
 
@@ -620,21 +602,27 @@ onMounted(async () => {
   };
   animate();
 
-  // 8. Manejo de cambio de tamaño de ventana (Responsive)
+  // 8. Manejo Responsive preciso con ResizeObserver
   const handleResize = () => {
-    if (!canvasContainer.value || !renderer || !camera) return;
+    if (!canvasContainer.value || !renderer) return;
     const w = canvasContainer.value.clientWidth;
     const h = canvasContainer.value.clientHeight;
-    camera.aspect = w / h;
-    camera.updateProjectionMatrix();
+    if (w === 0 || h === 0) return;
+
+    updateCameraAspect();
     renderer.setSize(w, h);
   };
-  window.addEventListener("resize", handleResize);
+
+  resizeObserver = new ResizeObserver(() => handleResize());
+  resizeObserver.observe(canvasContainer.value);
 });
 
 onUnmounted(() => {
   if (animationFrameId !== null) {
     cancelAnimationFrame(animationFrameId);
+  }
+  if (resizeObserver) {
+    resizeObserver.disconnect();
   }
   if (renderer && renderer.domElement) {
     renderer.dispose();
